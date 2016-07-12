@@ -14,7 +14,7 @@ void pause()
 void speedTest(MemoryPool& pool)
 {
     const long testTime = 100000;
-    const size_t testSize = 1000000;
+    const size_t testSize = 100000;
     {
         auto st = chrono::system_clock::now();
         for (long i = 0; i != testTime; i++)
@@ -40,7 +40,7 @@ int main()
 {
     cout << "Functional test, press any key to start" << endl;
 
-    MemoryPool pool;
+    MemoryPool pool(1024*1024); //1mb
     pause();
     {
         std::vector<int, MemoryPool::Allocator<int>> v(pool.getAllocator<int>());
