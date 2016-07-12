@@ -19,8 +19,8 @@ void speedTest(MemoryPool& pool)
         auto st = chrono::system_clock::now();
         for (long i = 0; i != testTime; i++)
         {
-            char* c = new char[testSize];
-            delete[] c;
+            char* ptr = new char[testSize];
+            delete[] ptr;
         }
         auto ed = chrono::system_clock::now();
         cout << (ed - st).count() << endl;
@@ -30,6 +30,9 @@ void speedTest(MemoryPool& pool)
         auto st = chrono::system_clock::now();
         for (long i = 0; i != testTime; i++)
         {
+            auto alloc = pool.getAllocator<char>();
+            auto ptr=alloc.allocate(testSize);
+            alloc.deallocate(ptr, testSize);
         }
         auto ed = chrono::system_clock::now();
         cout << (ed - st).count() << endl;
@@ -43,9 +46,10 @@ int main()
     MemoryPool pool(1024*1024); //1mb
     pause();
     {
+        const int testTime = 100000;
         std::vector<int, MemoryPool::Allocator<int>> v(pool.getAllocator<int>());
-        for (int i = 0; i != 10000; i++) v.push_back(i);
-        for (int i = 0; i != 10000; i++, v.pop_back()) assert(v[v.size() - 1] == 9999 - i);
+        for (int i = 0; i != testTime; i++) v.push_back(i);
+        for (int i = 0; i != testTime; i++, v.pop_back()) assert(v[v.size() - 1] == testTime - 1 - i);
     }
     pause();
 

@@ -10,8 +10,9 @@ public:
         m_buffer = new char[m_bufferSize];
     }
     MemoryPool(const MemoryPool&) = delete;
+    MemoryPool(MemoryPool&&) = delete;
     MemoryPool& operator = (const MemoryPool&) = delete;
-    ~MemoryPool() { delete[] m_buffer; }
+    ~MemoryPool() { delete[] m_buffer; delete m_next; }
 
     // Allocators for memory pools
     template <class T>
@@ -21,47 +22,42 @@ public:
         using value_type = T;
         using pointer = T*;
 
-        Allocator(MemoryPool& pool) :m_pool(pool) {}
+        Allocator(MemoryPool* pool) :m_pool(pool) {}
         template <class U> Allocator(Allocator<U>& other): m_pool(other.getPool()) {}
 
         pointer allocate(std::size_t n)
         {
-            return m_pool.allocate<value_type>(n*sizeof(value_type));
+            return m_pool->allocate<value_type>(n*sizeof(value_type), &m_pool);
         }
         void deallocate(pointer p, std::size_t n)
         {
-            m_pool.deallocate(p, n);
+            m_pool->deallocate(p, n);
         }
 
-        MemoryPool& getPool() { return m_pool; }
+        MemoryPool* getPool() { return m_pool; }
 
     private:
-        MemoryPool& m_pool;
+        MemoryPool* m_pool;
     };
 
     // Get an allocator
     template <class T>
     Allocator<T> getAllocator()
     {
-        return Allocator<T>(*this);
+        return Allocator<T>(this);
     }
 
     // Allocate memory
     template <class T>
-    T* allocate(std::size_t n)
+    T* allocate(std::size_t n, MemoryPool** pool)
     {
         if (n == 0) return nullptr;
 
-        bool needCreate = false; // If need create a new memory pool
+        bool notEnough = false; // If need create a new memory pool
         char* pos = m_buffer;
-        if(n>m_maxContinuousMemorySize&&m_maxContinuousMemorySize!=-1)
+        if((n>m_maxContinuousMemorySize&&m_maxContinuousMemorySizeValid)||n>m_bufferSize - m_bufferUsedSize)
         {
-            needCreate = true;
-        }
-        if(n>m_bufferSize-m_bufferUsedSize)
-        {
-            needCreate = true;
-            m_maxContinuousMemorySize = n - 1;
+            notEnough = true;
         }
         else
         {
@@ -88,7 +84,7 @@ public:
                         }
                         else
                         {
-                            needCreate = true;
+                            notEnough = true;
                             m_maxContinuousMemorySize = n;
                         }
                     }
@@ -99,12 +95,20 @@ public:
                 }
             }
         }
-        if(needCreate)
+        if(notEnough)
         {
-            return nullptr; //TODO: create a new memory pool, and allocate memory from it.
+            if (!m_next)
+            {
+                size_t size = m_bufferSize;
+                while (n > m_bufferSize) m_bufferSize *= 2;
+                m_next = new MemoryPool(size);
+            }
+            m_maxContinuousMemorySize = n > m_maxContinuousMemorySize ? m_maxContinuousMemorySize : n - 1;
+            return m_next->allocate<T>(n, pool);
         }
         m_allocateMap.insert({ pos ,n });
         m_bufferUsedSize += n;
+        *pool = this;
         return reinterpret_cast<T*>(pos);
     }
 
@@ -112,7 +116,10 @@ public:
     template <class T>
     void deallocate(T* p, std::size_t n)
     {
-        m_maxContinuousMemorySize = -1;
+        m_maxContinuousMemorySizeValid = false; // Make it invalid
+        auto iter = m_allocateMap.find({ reinterpret_cast<char*>(p),n });
+        if (iter == m_allocateMap.cend()) throw;
+        m_allocateMap.erase(iter);
     }
 
 private:
@@ -120,21 +127,22 @@ private:
     char* m_buffer;
     size_t m_bufferSize;
     size_t m_bufferUsedSize;
-    size_t m_maxContinuousMemorySize=-1; // Only a size less than or equals to this MAY be allocated in this memory pool.
+    size_t m_maxContinuousMemorySize; // Only a size less than or equals to this MAY be allocated in this memory pool.
+    bool m_maxContinuousMemorySizeValid = false;
     std::set<AllocInfo> m_allocateMap;
+    MemoryPool* m_next = nullptr;
 };
 
 
 template <class T, class U>
 bool operator==(const MemoryPool::Allocator<T>& a, const MemoryPool::Allocator<U>& b)
 {
-    return a.getPool() == b.getPool();
+    return (&a.getPool()) == (&b.getPool());
 }
 template <class T, class U>
 bool operator!=(const MemoryPool::Allocator<T>& a, const MemoryPool::Allocator<U>& b)
 {
     return !(a == b);
 }
-
 
 #endif // MEMORYPOOL_H__
