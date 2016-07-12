@@ -5,14 +5,22 @@
 class MemoryPool
 {
 public:
-    MemoryPool(int unitPoolSize) :m_bufferSize(unitPoolSize)
+    explicit MemoryPool(int unitPoolSize) :
+        m_buffer(new char[unitPoolSize]),
+        m_bufferSize(unitPoolSize),
+        m_allocateMap(static_cast<AllocInfo*>(malloc(32 * sizeof(AllocInfo)))),
+        m_allocateMapSizeAlloc(32)
     {
-        m_buffer = new char[m_bufferSize];
     }
     MemoryPool(const MemoryPool&) = delete;
     MemoryPool(MemoryPool&&) = delete;
     MemoryPool& operator = (const MemoryPool&) = delete;
-    ~MemoryPool() { delete[] m_buffer; delete m_next; }
+    ~MemoryPool()
+    {
+        free(m_allocateMap);
+        delete[] m_buffer;
+        delete m_next;
+    }
 
     // Allocators for memory pools
     template <class T>
@@ -49,49 +57,49 @@ public:
 
     // Allocate memory
     template <class T>
-    T* allocate(std::size_t n, MemoryPool** pool)
+    T* allocate(std::size_t size, MemoryPool** pool)
     {
-        if (n == 0) return nullptr;
+        if (size == 0) return nullptr;
 
         bool notEnough = false; // If need create a new memory pool
         char* pos = m_buffer;
-        if((n>m_maxContinuousMemorySize&&m_maxContinuousMemorySizeValid)||n>m_bufferSize - m_bufferUsedSize)
+        if(size>m_maxContinuousMemorySize&&m_maxContinuousMemorySizeValid)
         {
             notEnough = true;
         }
         else
         {
-            if (m_allocateMap.size() > 0)
+            if (m_allocateMapSize > 0)
             {
-                if (m_allocateMap.size() > 1)
+                if (m_allocateMapSize > 1)
                 {
-                    const AllocInfo* lastInfo = &*m_allocateMap.cbegin();
-                    auto iter = ++m_allocateMap.cbegin();
-                    for (; iter != m_allocateMap.cend(); ++iter)
+                    const AllocInfo* lastInfo = m_allocateMap;
+                    auto ptr = ++m_allocateMap;
+                    for (; ptr != m_allocateMap + m_allocateMapSize; ++ptr)
                     {
-                        if (lastInfo->first + lastInfo->second + n < iter->first)
+                        if (lastInfo->first + lastInfo->second + size < ptr->first)
                         {
                             pos = lastInfo->first + lastInfo->second;
                             break;
                         }
-                        lastInfo = &*iter;
+                        lastInfo = ptr;
                     }
-                    if (iter == m_allocateMap.cend())
+                    if (ptr == m_allocateMap + m_allocateMapSize)
                     {
-                        if (lastInfo->first + lastInfo->second + n < m_buffer + m_bufferSize)
+                        if (lastInfo->first + lastInfo->second + size < m_buffer + m_bufferSize)
                         {
                             pos = lastInfo->first + lastInfo->second;
                         }
                         else
                         {
                             notEnough = true;
-                            m_maxContinuousMemorySize = n;
+                            m_maxContinuousMemorySize = size;
                         }
                     }
                 }
                 else
                 {
-                    pos += m_allocateMap.cbegin()->second;
+                    pos += m_allocateMap->second;
                 }
             }
         }
@@ -99,38 +107,93 @@ public:
         {
             if (!m_next)
             {
-                size_t size = m_bufferSize;
-                while (n > m_bufferSize) m_bufferSize *= 2;
-                m_next = new MemoryPool(size);
+                size_t newSize = m_bufferSize;
+                while (size > m_bufferSize) m_bufferSize *= 2;
+                m_next = new MemoryPool(newSize);
             }
-            m_maxContinuousMemorySize = n > m_maxContinuousMemorySize ? m_maxContinuousMemorySize : n - 1;
-            return m_next->allocate<T>(n, pool);
+            m_maxContinuousMemorySize = size > m_maxContinuousMemorySize ? m_maxContinuousMemorySize : size - 1;
+            return m_next->allocate<T>(size, pool);
         }
-        m_allocateMap.insert({ pos ,n });
-        m_bufferUsedSize += n;
+        insertAllocaateMap(pos, size);
         *pool = this;
         return reinterpret_cast<T*>(pos);
     }
 
     // Deallocate memory
     template <class T>
-    void deallocate(T* p, std::size_t n)
+    void deallocate(T* p, std::size_t size)
     {
         m_maxContinuousMemorySizeValid = false; // Make it invalid
-        auto iter = m_allocateMap.find({ reinterpret_cast<char*>(p),n });
-        if (iter == m_allocateMap.cend()) throw;
-        m_allocateMap.erase(iter);
+        int index = binarySearch(reinterpret_cast<char*>(p));
+        if (index == -1|| m_allocateMap[index].second!= size) throw;
+        for (int j = m_allocateMapSize - 1; j >= index; j--)
+            m_allocateMap[j + 1] = m_allocateMap[j];
+        m_allocateMapSize--;
     }
 
 private:
     using AllocInfo = std::pair<char*, size_t>;
     char* m_buffer;
     size_t m_bufferSize;
-    size_t m_bufferUsedSize;
-    size_t m_maxContinuousMemorySize; // Only a size less than or equals to this MAY be allocated in this memory pool.
+    size_t m_maxContinuousMemorySize = 0; // Only a size less than or equals to this MAY be allocated in this memory pool.
     bool m_maxContinuousMemorySizeValid = false;
-    std::set<AllocInfo> m_allocateMap;
+    AllocInfo* m_allocateMap = nullptr;
+    size_t m_allocateMapSize = 0;
+    size_t m_allocateMapSizeAlloc = 0;
     MemoryPool* m_next = nullptr;
+
+
+    void twoInsert(char* pos, size_t size)
+    {
+        int left, right;
+        int middle, j, i = m_allocateMapSize;
+        left = 0;
+        right = i - 1;
+        while (right >= left)
+        {
+            middle = (left + right) / 2;
+            if (pos < m_allocateMap[middle].first)
+                right = middle - 1;
+            else
+                left = middle + 1;
+        }
+        for (j = i - 1; j >= left; j--)
+            m_allocateMap[j + 1] = m_allocateMap[j];
+        m_allocateMap[left].first = pos;
+        m_allocateMap[left].second = size;
+    }
+
+    int binarySearch(char* pos)
+    {
+        int start = 0;
+        int end = m_allocateMapSize - 1;
+
+        while (start <= end)
+        {
+            int mid = start + (end - start) / 2;
+            if (m_allocateMap[mid].first == pos)
+                return mid;
+
+            if (pos < m_allocateMap[mid].first)
+                end = mid - 1;
+            else
+                start = mid + 1;
+        }
+        return -1;
+    }
+
+    void insertAllocaateMap(char* pos, size_t size)
+    {
+        if (m_allocateMapSize + 1 > m_allocateMapSizeAlloc)
+        {
+            m_allocateMap = static_cast<AllocInfo*>(realloc(m_allocateMap, m_allocateMapSizeAlloc * 2));
+            m_allocateMapSizeAlloc *= 2;
+        }
+
+        twoInsert(pos, size);
+        m_allocateMapSize++;
+    }
+
 };
 
 
