@@ -39,7 +39,7 @@ public:
         }
         void deallocate(pointer p, std::size_t n)
         {
-            m_pool->deallocate(p, n);
+            m_pool->deallocate(p, n*sizeof(value_type));
         }
 
         MemoryPool* getPool() { return m_pool; }
