@@ -1,10 +1,13 @@
 #ifndef MEMORYPOOL_H__
 #define MEMORYPOOL_H__
-#include <set>
+#include "Allocators.h"
+#include <stdlib.h>
+#include <utility>
 
 class MemoryPool
 {
 public:
+
     explicit MemoryPool(int unitPoolSize) :
         m_buffer(new char[unitPoolSize]),
         m_bufferSize(unitPoolSize),
@@ -21,32 +24,6 @@ public:
         delete[] m_buffer;
         delete m_next;
     }
-
-    // Allocators for memory pools
-    template <class T>
-    class Allocator
-    {
-    public:
-        using value_type = T;
-        using pointer = T*;
-
-        Allocator(MemoryPool* pool) :m_pool(pool) {}
-        template <class U> Allocator(Allocator<U>& other): m_pool(other.getPool()) {}
-
-        pointer allocate(std::size_t n)
-        {
-            return m_pool->allocate<value_type>(n*sizeof(value_type), &m_pool);
-        }
-        void deallocate(pointer p, std::size_t n)
-        {
-            m_pool->deallocate(p, n*sizeof(value_type));
-        }
-
-        MemoryPool* getPool() { return m_pool; }
-
-    private:
-        MemoryPool* m_pool;
-    };
 
     // Get an allocator
     template <class T>
@@ -114,7 +91,7 @@ public:
             m_maxContinuousMemorySize = size > m_maxContinuousMemorySize ? m_maxContinuousMemorySize : size - 1;
             return m_next->allocate<T>(size, pool);
         }
-        insertAllocaateMap(pos, size);
+        insertAllocateMap(pos, size);
         *pool = this;
         return reinterpret_cast<T*>(pos);
     }
@@ -182,7 +159,7 @@ private:
         return -1;
     }
 
-    void insertAllocaateMap(char* pos, size_t size)
+    void insertAllocateMap(char* pos, size_t size)
     {
         if (m_allocateMapSize + 1 > m_allocateMapSizeAlloc)
         {
@@ -196,14 +173,107 @@ private:
 
 };
 
+template <class T, size_t Size>
+class FixedMemoryPool
+{
+public:
+    enum
+    {
+        PoolElumNum = Size, ElumSize = sizeof(T)
+    };
+    using ElemType = T;
+    using AllocatorType = FixedAllocator<ElemType, Size>;
+
+    FixedMemoryPool() :
+        m_buffer(new ElemType[PoolElumNum]),
+        m_allocateMap(new bool[PoolElumNum]),
+        m_freeSize(new size_t(PoolElumNum))
+    {
+        memset(m_allocateMap, 0, sizeof(bool)*PoolElumNum);
+    }
+    FixedMemoryPool(const FixedMemoryPool& other)
+    {
+        m_buffer = other.m_buffer;
+        m_allocateMap = other.m_allocateMap;
+        m_next = other.m_next;
+        m_freeSize = other.m_freeSize;;
+    }
+    FixedMemoryPool(FixedMemoryPool&&) = delete;
+    FixedMemoryPool& operator = (const FixedMemoryPool&) = delete;
+
+    ~FixedMemoryPool()
+    {
+        delete m_allocateMap;
+        delete[] m_buffer;
+        delete m_next;
+    }
+
+    // Allocate memory
+    ElemType* allocate(std::size_t size)
+    {
+        if (size == 0) return nullptr;
+
+        size_t pos = 0;
+        bool notEnough = *m_freeSize == 0;
+
+        if(!notEnough)
+            for (; pos < PoolElumNum; ++pos)
+                if (!m_allocateMap[pos]) break;
+
+        notEnough = notEnough || pos == PoolElumNum;
+
+        if (notEnough)
+        {
+            if (!m_next) m_next = new FixedMemoryPool<ElemType, PoolElumNum/* * 2*/>();
+            return m_next->allocate(size);
+        }
+
+        m_allocateMap[pos] = true;
+        return reinterpret_cast<ElemType*>(m_buffer + pos);
+    }
+
+    // Deallocate memory
+    template <class U>
+    void deallocate(U* ptr, std::size_t size)
+    {
+        size_t pos = (ptr - m_buffer) / ElumSize;
+        if(pos<0||pos>=PoolElumNum)
+        {
+            if (m_next)
+            {
+                m_next->deallocate(ptr, size);
+                return;
+            }
+            throw;
+        }
+        ++*m_freeSize;
+        m_allocateMap[(ptr - m_buffer) / ElumSize] = false;
+    }
+
+private:
+    ElemType* m_buffer;
+    bool* m_allocateMap = nullptr; // false if it's free, and true if a object has already been here.
+    size_t* m_freeSize;
+    FixedMemoryPool<ElemType, PoolElumNum/* * 2*/>* m_next = nullptr;
+};
 
 template <class T, class U>
-bool operator==(const MemoryPool::Allocator<T>& a, const MemoryPool::Allocator<U>& b)
+bool operator==(const Allocator<T>& a, const Allocator<U>& b)
 {
     return (&a.getPool()) == (&b.getPool());
 }
 template <class T, class U>
-bool operator!=(const MemoryPool::Allocator<T>& a, const MemoryPool::Allocator<U>& b)
+bool operator!=(const Allocator<T>& a, const Allocator<U>& b)
+{
+    return !(a == b);
+}
+template <class T, class U, size_t Size1,size_t Size2>
+bool operator==(const FixedAllocator<T, Size1>& a, const FixedAllocator<U, Size2>& b)
+{
+    return (&a.getPool()) == (&b.getPool());
+}
+template <class T, class U, size_t Size1, size_t Size2>
+bool operator!=(const FixedAllocator<T, Size1>& a, const FixedAllocator<U, Size2>& b)
 {
     return !(a == b);
 }
