@@ -83,11 +83,11 @@ int main()
             auto alloc2 = pool.getAllocator<BigPacket>();
             auto ptr1 = alloc.newobj();
             auto ptr2 = alloc2.newobj();
-            alloc.delobj(ptr3);
+            alloc.delobj(ptr1);
             alloc2.delobj(ptr2);
             auto ptr3 = alloc.newobj();
             assert(ptr3 == ptr1);
-            alloc.delobj(ptr1);
+            alloc.delobj(ptr3);
         }
         cout << "OK..." << endl << "Checkpoint 5 ";
         {
