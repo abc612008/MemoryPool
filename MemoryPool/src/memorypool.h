@@ -110,8 +110,8 @@ public:
             }
             throw;
         }
-        for (int j = m_allocateMapSize - 1; j >= index; j--)
-            m_allocateMap[j - 1] = m_allocateMap[j];
+        for (int i = index; i < m_allocateMapSize - 1; i++)
+            m_allocateMap[i] = m_allocateMap[i + 1];
         m_allocateMapSize--;
     }
 
