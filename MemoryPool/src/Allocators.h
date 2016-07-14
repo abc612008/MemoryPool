@@ -27,7 +27,7 @@ public:
 
     pointer allocate(std::size_t n)
     {
-        return m_pool->allocate<value_type>(n*sizeof(value_type), &m_pool);
+        return m_pool->allocate<value_type>(n*sizeof(value_type));
     }
     void deallocate(pointer p, std::size_t n)
     {

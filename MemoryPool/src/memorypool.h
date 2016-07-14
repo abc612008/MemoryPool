@@ -34,7 +34,7 @@ public:
 
     // Allocate memory
     template <class T>
-    T* allocate(std::size_t size, MemoryPool** pool)
+    T* allocate(std::size_t size)
     {
         if (size == 0) return nullptr;
 
@@ -51,7 +51,7 @@ public:
                 if (m_allocateMapSize > 1)
                 {
                     const AllocInfo* lastInfo = m_allocateMap;
-                    auto ptr = ++m_allocateMap;
+                    auto ptr = m_allocateMap + 1;
                     for (; ptr != m_allocateMap + m_allocateMapSize; ++ptr)
                     {
                         if (lastInfo->first + lastInfo->second + size < ptr->first)
@@ -84,15 +84,14 @@ public:
         {
             if (!m_next)
             {
-                size_t newSize = m_bufferSize;
-                while (size > m_bufferSize) m_bufferSize *= 2;
+                size_t newSize = m_bufferSize * 2;
+                while (size > m_bufferSize) newSize *= 2;
                 m_next = new MemoryPool(newSize);
             }
             m_maxContinuousMemorySize = size > m_maxContinuousMemorySize ? m_maxContinuousMemorySize : size - 1;
-            return m_next->allocate<T>(size, pool);
+            return m_next->allocate<T>(size);
         }
         insertAllocateMap(pos, size);
-        *pool = this;
         return reinterpret_cast<T*>(pos);
     }
 
@@ -102,9 +101,17 @@ public:
     {
         m_maxContinuousMemorySizeValid = false; // Make it invalid
         int index = binarySearch(reinterpret_cast<char*>(p));
-        if (index == -1|| m_allocateMap[index].second!= size) throw;
+        if (index == -1|| m_allocateMap[index].second!= size)
+        {
+            if (m_next)
+            {
+                m_next->deallocate(p, size);
+                return;
+            }
+            throw;
+        }
         for (int j = m_allocateMapSize - 1; j >= index; j--)
-            m_allocateMap[j + 1] = m_allocateMap[j];
+            m_allocateMap[j - 1] = m_allocateMap[j];
         m_allocateMapSize--;
     }
 
@@ -118,7 +125,6 @@ private:
     size_t m_allocateMapSize = 0;
     size_t m_allocateMapSizeAlloc = 0;
     MemoryPool* m_next = nullptr;
-
 
     void twoInsert(char* pos, size_t size)
     {
@@ -163,7 +169,7 @@ private:
     {
         if (m_allocateMapSize + 1 > m_allocateMapSizeAlloc)
         {
-            m_allocateMap = static_cast<AllocInfo*>(realloc(m_allocateMap, m_allocateMapSizeAlloc * 2));
+            m_allocateMap = static_cast<AllocInfo*>(realloc(m_allocateMap, m_allocateMapSizeAlloc * 2 * sizeof(AllocInfo)));
             m_allocateMapSizeAlloc *= 2;
         }
 

@@ -6,11 +6,6 @@
 
 constexpr size_t poolSize = 1024;
 using FixedPool = FixedMemoryPool<int, poolSize>;
-
-namespace mp2
-{
-#include "mp2.h"
-}
 using namespace std;
 
 void pause()
@@ -44,7 +39,7 @@ int main()
     {
         cout << "Test 1. Memory Pool" << endl;
         MemoryPool pool(8 * 1024);
-        cout << "Checkpoint 1" << endl;
+        cout << "Checkpoint 1 ";
         {
             auto alloc = pool.getAllocator<int>();
             int* ptr = alloc.newobj();
@@ -53,7 +48,7 @@ int main()
             assert(*ptr == 2);
             alloc.delobj(ptr);
         }
-        cout << "Checkpoint 2" << endl;
+        cout << "OK..." << endl << "Checkpoint 2 ";
         {
             auto alloc = pool.getAllocator<int>();
             auto alloc2 = pool.getAllocator<BigPacket>();
@@ -66,13 +61,14 @@ int main()
             alloc.delobj(ptr1);
             alloc2.delobj(ptr2);
         }
-        cout << "Checkpoint 3" << endl;
+        cout << "OK..." << endl << "Checkpoint 3 ";
         {
             auto alloc = pool.getAllocator<int>();
             auto alloc2 = pool.getAllocator<BigPacket>();
             auto alloc3 = pool.getAllocator<BigPacket>();
             auto ptr1 = alloc.newobj();
-            auto ptr2 = alloc2.newobj(), ptr3 = alloc3.newobj();
+            auto ptr2 = alloc2.newobj();
+            auto ptr3 = alloc3.newobj();
             ptr2->arr[0] = 1;
             ptr3->arr[1] = 2;
             *ptr1 = ptr2->arr[0] + ptr3->arr[1];
@@ -81,11 +77,10 @@ int main()
             alloc2.delobj(ptr2);
             alloc3.delobj(ptr3);
         }
-        cout << "Checkpoint 4" << endl;
+        cout << "OK..." << endl << "Checkpoint 4 " ;
         {
             auto alloc = pool.getAllocator<int>();
             auto alloc2 = pool.getAllocator<BigPacket>();
-            auto alloc3 = pool.getAllocator<BigPacket>();
             auto ptr1 = alloc.newobj();
             auto ptr2 = alloc2.newobj();
             alloc.delobj(ptr1);
@@ -94,7 +89,37 @@ int main()
             assert(ptr3 == ptr1);
             alloc.delobj(ptr1);
         }
-        cout << "Checkpoint 5" << endl;
+        cout << "OK..." << endl << "Checkpoint 5 ";
+        {
+            auto alloc = pool.getAllocator<int>();
+            auto alloc2 = pool.getAllocator<BigPacket>();
+            auto ptr1 = alloc.newobj();
+            auto ptr2 = alloc2.newobj();
+            auto ptr3 = alloc2.newobj();
+            ptr2->arr[0] = 1;
+            ptr3->arr[1] = 2;
+            *ptr1 = ptr2->arr[0] + ptr3->arr[1];
+            assert(*ptr1 == 3);
+            alloc.delobj(ptr1);
+            alloc2.delobj(ptr2);
+            alloc2.delobj(ptr3);
+        }
+        cout << "OK..." << endl << "Checkpoint 6 ";
+        {
+            constexpr int testnum = 10000;
+            auto alloc = pool.getAllocator<int>();
+            auto alloc2 = pool.getAllocator<BigPacket>();
+            void* ptrs[testnum] = {};
+            for (auto i = 0; i != testnum; i++)
+            {
+                ptrs[i] = i % 2 == 0 ? static_cast<void*>(alloc.newobj()) : static_cast<void*>(alloc2.newobj());
+            }
+            for (auto i = 0; i != testnum; i++)
+            {
+                i % 2 == 0 ? alloc.delobj(static_cast<int*>(ptrs[i])) : alloc2.delobj(static_cast<BigPacket*>(ptrs[i]));
+            }
+        }
+        cout << "OK..." << endl;
     }
     pause();
 
